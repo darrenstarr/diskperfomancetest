@@ -125,9 +125,8 @@ def deleteXRandomFiles (path, count):
         except FileNotFoundError:
             print("{i} not found")
             pass
-        #except:
-
-        #    pass
+        except:
+            pass
 
     return removed
 
