@@ -20,6 +20,7 @@ blockSize = 16384
 
 bytesCopied = 0
 filesCopied = 0
+filesDeleted = 0
 stop = False
 
 def updateCountersCallback(info):
@@ -31,10 +32,12 @@ def worker(name):
     global bytesCopied
     global filesCopied
     global stop
+    global filesDeleted
 
     startTime = time.time()
     previousBytesCopied = 0
     previousTime =time.time()
+    filesCopiedSinceDelete = 0
     
     while not stop:
         
@@ -44,9 +47,9 @@ def worker(name):
             timeRun = timeNow - startTime
             mbSec = (bytesCopied /timeRun) / (2 ** 20)
             mbSecInstantaneous = ((bytesCopied - previousBytesCopied) / (timeNow - previousTime)) / (2 ** 20)
-            print(f"\r{time.strftime('%H:%M:%S', time.gmtime(timeRun))}: MB copied {bytesCopied / (2 **20):,.2f}, Files copied {filesCopied}, Rate {mbSec:,.2f}MB/s (overall) Rate {mbSecInstantaneous:,.2f}MB/s (instant)  ", end="")
+            print(f"\r{time.strftime('%H:%M:%S', time.gmtime(timeRun))}: MB copied {bytesCopied / (2 **20):,.2f}, Files copied {filesCopied}, Rate {mbSec:,.2f}MB/s (overall) Rate {mbSecInstantaneous:,.2f}MB/s (instant), {filesDeleted} files deleted ", end="")
 
-            logToCSV(f"{time.strftime('%H:%M:%S', time.gmtime(timeRun))}, {bytesCopied / (2 **20):.2f}, {filesCopied}, {mbSec:.2f},{mbSecInstantaneous:.2f}")
+            logToCSV(f"{time.strftime('%H:%M:%S', time.gmtime(timeRun))}, {bytesCopied / (2 **20):.2f}, {filesCopied}, {mbSec:.2f},{mbSecInstantaneous:.2f}, {filesDeleted}")
 
             if maxFiles > 0 and filesCopied > maxFiles:
                 stop = True
@@ -73,11 +76,17 @@ def worker(name):
 
                 copyFileWithProgress(pickedSource['source'], pickedSource['destination'], updateCountersCallback)
                 filesCopied += 1
+                filesCopiedSinceDelete += 1
             else:
                 result = copyXRandomFiles(sourcePath, destinationPath, dir_list, 100)
 
                 bytesCopied += result['bytesCopied']
                 filesCopied += result['filesCopied']
+                filesCopiedSinceDelete += result['filesCopied']
+
+            if filesCopiedSinceDelete > 100:
+                filesDeleted += deleteXRandomFiles(destinationPath, 20)
+                filesCopiedSinceDelete = 0
 
 def logToCSV(text):
     if csvLogFile == "":
@@ -88,7 +97,7 @@ def logToCSV(text):
 
 
 def pickXOf (source, count):
-    listLength = len(dir_list)
+    listLength = len(source)
     
     result = []
 
@@ -97,6 +106,28 @@ def pickXOf (source, count):
         result.append(source[itemIndex])
 
     return result 
+
+def deleteXRandomFiles (path, count):
+    dir_list = os.listdir(path)
+
+    files = pickXOf(dir_list, count)
+
+    toRemove = list(
+            map(lambda x: os.path.join(path, x), files)
+        )
+
+    removed = 0
+    for i in toRemove:
+        try:
+            if os.path.exists(i):
+                os.remove(i)
+            removed += 1
+        except FileNotFoundError:
+            pass
+        except:
+            pass
+
+    return removed
 
 def copyXRandomFiles (sourcePath, destinationPath, fileList, count):
     picked = pickXOf(fileList, count)
