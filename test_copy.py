@@ -2,10 +2,12 @@
 
 import argparse
 import concurrent.futures
+from operator import indexOf
 import os
 import random
 import shutil
 import subprocess
+from threading import Lock
 import time
 
 useInternalCopy = True
@@ -22,6 +24,10 @@ bytesCopied = 0
 filesCopied = 0
 filesDeleted = 0
 stop = False
+
+fastDir = False
+lock = Lock()
+destinationFileList = []
 
 def updateCountersCallback(info):
     global bytesCopied
@@ -75,6 +81,11 @@ def worker(name):
                 )[0]
 
                 copyFileWithProgress(pickedSource['source'], pickedSource['destination'], updateCountersCallback)
+                if fastDir:
+                    lock.acquire()
+                    destinationFileList.append(pickedSource['destination'])
+                    lock.release()
+
                 filesCopied += 1
                 filesCopiedSinceDelete += 1
             else:
@@ -108,13 +119,20 @@ def pickXOf (source, count):
     return result 
 
 def deleteXRandomFiles (path, count):
-    dir_list = os.listdir(path)
+    toRemove = []
 
-    files = pickXOf(dir_list, count)
+    if fastDir:
+        lock.acquire()
+        toRemove = pickXOf(destinationFileList, count)
+        lock.release()
+    else:
+        dir_list = os.listdir(path)
 
-    toRemove = list(
-            map(lambda x: os.path.join(path, x), files)
-        )
+        files = pickXOf(dir_list, count)
+
+        toRemove = list(
+                map(lambda x: os.path.join(path, x), files)
+            )
 
     removed = 0
     for i in toRemove:
@@ -122,6 +140,12 @@ def deleteXRandomFiles (path, count):
             if os.path.exists(i):
                 os.remove(i)
             removed += 1
+
+            if fastDir:
+                lock.acquire()
+                destinationFileList.remove(i)
+                lock.release()
+
         except FileNotFoundError:
             print("{i} not found")
             pass
@@ -159,6 +183,13 @@ def copyXRandomFiles (sourcePath, destinationPath, fileList, count):
     #print (sum(map(lambda x: x['size'], pickedSource)))
 
     stdout, stderr = process.communicate()
+
+    if fastDir:
+        lock.acquire()
+        for item in pickedSource:
+            if not item['destination'] in destinationFileList:
+                destinationFileList.append(item['destination'])
+        lock.release()
 
     return { 
         'bytesCopied': sum(map(lambda x: x['size'], pickedSource)),
@@ -251,7 +282,8 @@ parser.add_argument('--thread-count', help="The number of copy threads to run", 
 parser.add_argument('--max-files', help="Stop after copying this many files", type=int, default=0)
 parser.add_argument('--max-gb', help="Stop after copying this many gigabytes (2^30 bytes)", type=int, default=0)
 parser.add_argument('--block-size', help="The read/write block size in KB", type=int, default=16)
-parser.add_argument('--csv', help="File to log telemetry", type=str)
+parser.add_argument('--csv', help="File to log telemetry", type=str, default="")
+parser.add_argument('--slowdir', help="Scan the directory at the start of delete cycle", action="store_true")
 args = parser.parse_args()
 
 sourcePath = args.source_path
@@ -261,6 +293,7 @@ maxFiles = args.max_files
 maxBytes = args.max_gb * (2 ** 30)
 blockSize = args.block_size * 1024
 csvLogFile = args.csv
+fastDir = not args.slowdir
 
 print(
 f'''
@@ -280,6 +313,16 @@ print()
 
 dir_list = os.listdir(sourcePath)
 os.makedirs(destinationPath, exist_ok=True)
+
+if fastDir:
+    print(f'Fast directory is enabled')
+    files = os.listdir(destinationPath)
+
+    destinationFileList = list(
+            map(lambda x: os.path.join(destinationPath, x), files)
+        )
+else:
+    print(f'Fast directory is disabled')
 
 if csvLogFile != "" and os.path.exists(csvLogFile):
     os.remove(csvLogFile)

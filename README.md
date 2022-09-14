@@ -17,6 +17,8 @@ mkdir /mnt/test/source
 
 This tests disk read and write performance by copying random source files to a destination directory and occassionally deleting groups of files to promote extensive fragmentation as well as directory structure stress testing.
 
+The current version does not scan the directory during each delete cycle by default. Rather, it caches the destination directory as we have identified that dCache does not absolutely need to perform many large directory reads.
+
 ```
 mkdir /mnt/test/destination
 ./test_copy.py --source-path /mnt/test/source --destination-path /mnt/test/destination --csv ~/speed_test.csv --max-gb 20000 --thread-count 16
